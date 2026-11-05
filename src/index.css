@@ -163,6 +163,83 @@ a {
   word-break: break-all;
 }
 
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+@media (min-width: 560px) {
+  .platform-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.platform-card {
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0c0b09;
+  color: var(--ink);
+  padding: 0.7rem 0.75rem;
+  cursor: pointer;
+  display: grid;
+  gap: 0.25rem;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.platform-card strong {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+}
+
+.platform-card span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.platform-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.platform-card.active {
+  border-color: var(--accent);
+  background: rgba(242, 193, 78, 0.08);
+}
+
+.platform-card.active span {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+
+.check-row {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin-top: 1rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.check-row input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+
+.check-row span {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.check-row small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .field {
   display: grid;
   gap: 0.4rem;

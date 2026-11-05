@@ -1,27 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
-import { convertVideo, type OutputMode } from './lib/ffmpeg'
+import { convertVideo, PLATFORMS, planFor, type Platform } from './lib/ffmpeg'
 
 type BgMode = 'checker' | '#5b4a8a' | '#0d0d0f' | '#e8e4dc'
 
 type OutFile = { name: string; blob: Blob; mime: string; url: string }
-
-const MODES: { id: OutputMode; title: string; desc: string }[] = [
-  {
-    id: 'webm-alpha',
-    title: 'VP9 Alpha · WebM',
-    desc: '保留透明通道。适合安卓 / 网页；也可再转到 iOS HEVC+Alpha。',
-  },
-  {
-    id: 'dual-mp4',
-    title: '双片 MP4（画面 + 遮罩）',
-    desc: '两路标准 H.264，iOS / 安卓 / 鸿蒙都能播，App 里自己合成透明。',
-  },
-  {
-    id: 'keyed-webm',
-    title: '抠色 → VP9 Alpha',
-    desc: '灰底 / 绿幕预览片抠成透明 WebM（外包常交灰底 H.264 时用）。',
-  },
-]
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -32,7 +14,8 @@ function formatBytes(n: number): string {
 export default function App() {
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [mode, setMode] = useState<OutputMode>('keyed-webm')
+  const [platform, setPlatform] = useState<Platform>('ios')
+  const [keyBackground, setKeyBackground] = useState(true)
   const [keyColor, setKeyColor] = useState('#8a8a8a')
   const [similarity, setSimilarity] = useState(0.12)
   const [blend, setBlend] = useState(0.08)
@@ -44,7 +27,7 @@ export default function App() {
   const [bg, setBg] = useState<BgMode>('checker')
   const [drag, setDrag] = useState(false)
 
-  const modeMeta = useMemo(() => MODES.find((m) => m.id === mode)!, [mode])
+  const plan = useMemo(() => planFor(platform), [platform])
 
   const revokeOutputs = useCallback((list: OutFile[]) => {
     list.forEach((f) => URL.revokeObjectURL(f.url))
@@ -82,13 +65,14 @@ export default function App() {
 
     try {
       const result = await convertVideo(file, {
-        mode,
+        platform,
+        keyBackground,
         keyColor,
         similarity,
         blend,
         onProgress: (r) => {
           setProgress(r)
-          setStatus(`转码中… ${Math.round(r * 100)}%`)
+          setStatus(`转码中（${plan.title} → ${plan.outputLabel}）… ${Math.round(r * 100)}%`)
         },
       })
       const next = result.files.map((f) => ({
@@ -97,7 +81,11 @@ export default function App() {
       }))
       setOutputs(next)
       setProgress(1)
-      setStatus(`完成 · ${next.map((f) => formatBytes(f.blob.size)).join(' / ')}`)
+      setStatus(
+        `完成 · ${result.plan.title} · ${result.plan.outputLabel} · ${next
+          .map((f) => formatBytes(f.blob.size))
+          .join(' / ')}`,
+      )
       if (next[0]) {
         if (previewUrl) URL.revokeObjectURL(previewUrl)
         setPreviewUrl(next[0].url)
@@ -123,13 +111,12 @@ export default function App() {
           Transcode <span>Alpha</span>
         </h1>
         <p className="tagline">
-          把带透明通道的动作视频，转成各端能用的格式。全部在浏览器本地完成，文件不上传。
+          选好目标平台，自动转成能用的透明方案。全部在浏览器本地完成，文件不上传。
         </p>
         <div className="badge-row">
+          <span className="badge">选平台即转</span>
           <span className="badge">本地 ffmpeg.wasm</span>
-          <span className="badge">VP9 Alpha</span>
-          <span className="badge">双片 MP4</span>
-          <span className="badge">灰底抠色</span>
+          <span className="badge">灰底可抠色</span>
         </div>
       </header>
 
@@ -156,7 +143,7 @@ export default function App() {
             }}
           >
             <strong>拖入视频，或点击选择</strong>
-            <p>支持 mp4 / mov / webm 等。建议先用真 Alpha 母带；灰底预览片选「抠色」。</p>
+            <p>mp4 / mov / webm。真 Alpha 母带或灰底预览片都可以。</p>
             <input
               id="file-input"
               type="file"
@@ -173,22 +160,38 @@ export default function App() {
           )}
 
           <div className="field">
-            <label htmlFor="mode">输出格式</label>
-            <select
-              id="mode"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as OutputMode)}
-            >
-              {MODES.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.title}
-                </option>
+            <label>目标平台</label>
+            <div className="platform-grid" role="radiogroup" aria-label="目标平台">
+              {PLATFORMS.map((p) => (
+                <button
+                  key={p.platform}
+                  type="button"
+                  role="radio"
+                  aria-checked={platform === p.platform}
+                  className={`platform-card${platform === p.platform ? ' active' : ''}`}
+                  onClick={() => setPlatform(p.platform)}
+                >
+                  <strong>{p.title}</strong>
+                  <span>{p.outputLabel}</span>
+                </button>
               ))}
-            </select>
-            <p className="hint">{modeMeta.desc}</p>
+            </div>
+            <p className="hint">{plan.desc}</p>
           </div>
 
-          {mode === 'keyed-webm' && (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={keyBackground}
+              onChange={(e) => setKeyBackground(e.target.checked)}
+            />
+            <span>
+              源片是实心底（灰底 / 绿幕），先抠色再导出
+              <small>外包预览片常见；真透明母带请关掉</small>
+            </span>
+          </label>
+
+          {keyBackground && (
             <>
               <div className="field">
                 <label htmlFor="key">抠色色值</label>
@@ -232,7 +235,7 @@ export default function App() {
 
           <div className="actions">
             <button className="btn btn-primary" disabled={!file || busy} onClick={run}>
-              {busy ? '转码中…' : '开始转码'}
+              {busy ? '转码中…' : `转为 ${plan.title} 格式`}
             </button>
             {file && (
               <button
@@ -313,15 +316,15 @@ export default function App() {
             ))}
           </div>
           <p className="hint">
-            说明：浏览器无法导出 Apple HEVC+Alpha。有真 Alpha 的 WebM / 双片后，可在 Mac 上再用
-            Compressor 或 ffmpeg VideoToolbox 转 iOS 上线带。
+            选 iOS / 鸿蒙 / 三端通用会得到两路 MP4：把 <code>mask</code> 当透明度叠在{' '}
+            <code>color</code> 上即可。选安卓 / 网页则是单文件透明 WebM。
           </p>
         </section>
       </div>
 
       <p className="footer-note">
-        Transcode Alpha · 开源本地工具。不收集文件，不连自有服务器。HEVC with Alpha
-        属平台能力，请在 macOS 本机二次转码。
+        Transcode Alpha · 开源本地工具。选平台即可用；浏览器无法调用 Mac 的 HEVC+Alpha
+        编码器，故 iOS 走双片方案，不必再开终端。
       </p>
     </div>
   )

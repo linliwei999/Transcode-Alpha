@@ -1,11 +1,64 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 
-export type OutputMode = 'webm-alpha' | 'dual-mp4' | 'keyed-webm'
+/** 用户选的目标平台（网页按此自动选格式） */
+export type Platform = 'ios' | 'android' | 'harmony' | 'universal' | 'web'
+
+export type PlatformPlan = {
+  platform: Platform
+  title: string
+  /** 自动产出说明 */
+  outputLabel: string
+  desc: string
+  kind: 'webm-alpha' | 'dual-mp4'
+}
+
+export const PLATFORMS: PlatformPlan[] = [
+  {
+    platform: 'ios',
+    title: 'iOS',
+    outputLabel: '双片 MP4（画面 + 遮罩）',
+    desc: '网页编不了 HEVC+Alpha；双片 H.264 可直接进 App 合成透明。',
+    kind: 'dual-mp4',
+  },
+  {
+    platform: 'android',
+    title: '安卓',
+    outputLabel: 'VP9 Alpha · WebM',
+    desc: '单文件带透明，多数安卓播放器 / ExoPlayer 可接。',
+    kind: 'webm-alpha',
+  },
+  {
+    platform: 'harmony',
+    title: '鸿蒙',
+    outputLabel: '双片 MP4（画面 + 遮罩）',
+    desc: '兼容性优先：两路标准 MP4，端上合成透明最稳。',
+    kind: 'dual-mp4',
+  },
+  {
+    platform: 'universal',
+    title: '三端通用',
+    outputLabel: '双片 MP4（画面 + 遮罩）',
+    desc: '一份素材打 iOS / 安卓 / 鸿蒙，体积略大但不用各转一版。',
+    kind: 'dual-mp4',
+  },
+  {
+    platform: 'web',
+    title: '网页',
+    outputLabel: 'VP9 Alpha · WebM',
+    desc: 'Chrome / Firefox 等可直接播透明 WebM。',
+    kind: 'webm-alpha',
+  },
+]
+
+export function planFor(platform: Platform): PlatformPlan {
+  return PLATFORMS.find((p) => p.platform === platform) ?? PLATFORMS[3]
+}
 
 export type ConvertOptions = {
-  mode: OutputMode
-  /** 抠色：#RRGGBB，仅 keyed-webm 使用 */
+  platform: Platform
+  /** 源片是灰底/绿幕，需要先抠色再导出 */
+  keyBackground: boolean
   keyColor?: string
   similarity?: number
   blend?: number
@@ -15,6 +68,7 @@ export type ConvertOptions = {
 
 export type ConvertResult = {
   files: { name: string; blob: Blob; mime: string }[]
+  plan: PlatformPlan
 }
 
 let ffmpegSingleton: FFmpeg | null = null
@@ -55,11 +109,17 @@ function stemOf(name: string): string {
   return i >= 0 ? base.slice(0, i) : base
 }
 
-/** 浏览器内转码。HEVC+Alpha 需 Apple 硬件，网页做不了——这里产出 VP9 Alpha 与双片 MP4。 */
+function keyFilter(keyColor: string, similarity: number, blend: number): string {
+  const color = keyColor.replace('#', '')
+  return `colorkey=0x${color}:${similarity}:${blend},format=yuva420p`
+}
+
+/** 按目标平台自动选格式；可选先抠灰底/绿幕。 */
 export async function convertVideo(
   file: File,
   options: ConvertOptions,
 ): Promise<ConvertResult> {
+  const plan = planFor(options.platform)
   const ffmpeg = await getFFmpeg(options.onLog)
   ffmpeg.on('progress', ({ progress }) => {
     options.onProgress?.(Math.min(1, Math.max(0, progress)))
@@ -69,35 +129,20 @@ export async function convertVideo(
   const stem = stemOf(file.name)
   await ffmpeg.writeFile(inName, await fetchFile(file))
 
+  const sim = options.similarity ?? 0.12
+  const blend = options.blend ?? 0.08
+  const keyColor = options.keyColor || '#8a8a8a'
+  const vfKey = options.keyBackground ? keyFilter(keyColor, sim, blend) : null
+
   const files: ConvertResult['files'] = []
 
-  if (options.mode === 'webm-alpha') {
-    const out = `${stem}-alpha.webm`
+  if (plan.kind === 'webm-alpha') {
+    const out = `${stem}-${options.platform}-alpha.webm`
+    const vf = vfKey ?? 'format=yuva420p'
     await ffmpeg.exec([
       '-i', inName,
       '-an',
-      '-c:v', 'libvpx-vp9',
-      '-pix_fmt', 'yuva420p',
-      '-auto-alt-ref', '0',
-      '-b:v', '0',
-      '-crf', '32',
-      out,
-    ])
-    files.push({
-      name: out,
-      blob: await readBlob(ffmpeg, out, 'video/webm'),
-      mime: 'video/webm',
-    })
-  } else if (options.mode === 'keyed-webm') {
-    const color = (options.keyColor || '#8a8a8a').replace('#', '')
-    const sim = String(options.similarity ?? 0.12)
-    const blend = String(options.blend ?? 0.08)
-    const out = `${stem}-keyed-alpha.webm`
-    // colorkey 后强制带 alpha 的 VP9
-    await ffmpeg.exec([
-      '-i', inName,
-      '-an',
-      '-vf', `colorkey=0x${color}:${sim}:${blend},format=yuva420p`,
+      '-vf', vf,
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',
       '-auto-alt-ref', '0',
@@ -111,29 +156,67 @@ export async function convertVideo(
       mime: 'video/webm',
     })
   } else {
-    // 双片：彩色画面 + 黑白遮罩，三端都能用 H.264 MP4
-    const colorOut = `${stem}-color.mp4`
-    const maskOut = `${stem}-mask.mp4`
-    await ffmpeg.exec([
-      '-i', inName,
-      '-an',
-      '-vf', 'format=yuv420p',
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-crf', '20',
-      '-preset', 'veryfast',
-      colorOut,
-    ])
-    await ffmpeg.exec([
-      '-i', inName,
-      '-an',
-      '-vf', 'alphaextract,format=yuv420p',
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-crf', '18',
-      '-preset', 'veryfast',
-      maskOut,
-    ])
+    const colorOut = `${stem}-${options.platform}-color.mp4`
+    const maskOut = `${stem}-${options.platform}-mask.mp4`
+
+    if (vfKey) {
+      // 先落到带 alpha 的中间 WebM，再拆双片（wasm 里复杂 filtergraph 更稳）
+      const mid = 'keyed-mid.webm'
+      await ffmpeg.exec([
+        '-i', inName,
+        '-an',
+        '-vf', vfKey,
+        '-c:v', 'libvpx-vp9',
+        '-pix_fmt', 'yuva420p',
+        '-auto-alt-ref', '0',
+        '-b:v', '0',
+        '-crf', '34',
+        mid,
+      ])
+      await ffmpeg.exec([
+        '-i', mid,
+        '-an',
+        '-vf', 'format=yuv420p',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-crf', '20',
+        '-preset', 'veryfast',
+        colorOut,
+      ])
+      await ffmpeg.exec([
+        '-i', mid,
+        '-an',
+        '-vf', 'alphaextract,format=yuv420p',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-crf', '18',
+        '-preset', 'veryfast',
+        maskOut,
+      ])
+      await ffmpeg.deleteFile(mid).catch(() => undefined)
+    } else {
+      await ffmpeg.exec([
+        '-i', inName,
+        '-an',
+        '-vf', 'format=yuv420p',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-crf', '20',
+        '-preset', 'veryfast',
+        colorOut,
+      ])
+      await ffmpeg.exec([
+        '-i', inName,
+        '-an',
+        '-vf', 'alphaextract,format=yuv420p',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-crf', '18',
+        '-preset', 'veryfast',
+        maskOut,
+      ])
+    }
+
     files.push(
       {
         name: colorOut,
@@ -154,7 +237,7 @@ export async function convertVideo(
     /* ignore */
   }
 
-  return { files }
+  return { files, plan }
 }
 
 async function readBlob(ffmpeg: FFmpeg, name: string, mime: string): Promise<Blob> {
