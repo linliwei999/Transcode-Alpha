@@ -1,0 +1,347 @@
+:root {
+  --bg: #0e0d0b;
+  --bg-elev: #181612;
+  --ink: #f4efe6;
+  --muted: #9a9286;
+  --line: rgba(244, 239, 230, 0.12);
+  --accent: #f2c14e;
+  --accent-2: #e85d4c;
+  --ok: #6fbf8a;
+  --danger: #e85d4c;
+  --font-display: 'Syne', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(242, 193, 78, 0.14), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(232, 93, 76, 0.1), transparent 50%),
+    linear-gradient(180deg, #14120f 0%, var(--bg) 40%);
+  background-attachment: fixed;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: var(--accent);
+}
+
+.app {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2.5rem 0 4rem;
+}
+
+.hero {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  max-width: 40rem;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  margin: 0;
+}
+
+.brand span {
+  color: var(--accent);
+}
+
+.tagline {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  max-width: 34rem;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.badge {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: color-mix(in srgb, var(--bg-elev) 92%, black);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1.25rem;
+}
+
+.panel h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  margin: 0 0 1rem;
+  letter-spacing: -0.02em;
+}
+
+.drop {
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 14px;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background:
+    linear-gradient(135deg, rgba(242, 193, 78, 0.05), transparent 40%),
+    rgba(255, 255, 255, 0.015);
+}
+
+.drop:hover,
+.drop.drag {
+  border-color: var(--accent);
+  background: rgba(242, 193, 78, 0.08);
+}
+
+.drop strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  margin-bottom: 0.35rem;
+}
+
+.drop p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.file-meta {
+  margin-top: 0.85rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.field label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.field select,
+.field input[type='text'],
+.field input[type='number'] {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #0c0b09;
+  color: var(--ink);
+  padding: 0.65rem 0.75rem;
+}
+
+.row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.hint {
+  margin: 0.65rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.72rem 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s, opacity 0.12s;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #1a1508;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.progress {
+  margin-top: 1rem;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.progress > i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.2s ease;
+}
+
+.status {
+  margin-top: 0.55rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+
+.status.err {
+  color: var(--danger);
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.preview-shell {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  aspect-ratio: 3 / 4;
+  max-height: 520px;
+  background-image:
+    linear-gradient(45deg, #2a2824 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2824 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2824 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2824 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  background-color: #1a1814;
+}
+
+.preview-shell.solid {
+  background-image: none;
+}
+
+.preview-shell video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.85rem 0 0;
+}
+
+.chip {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.downloads {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.download-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.download-item span {
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.footer-note {
+  margin-top: 1.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  max-width: 46rem;
+}
