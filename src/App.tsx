@@ -15,7 +15,7 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [platform, setPlatform] = useState<Platform>('ios')
-  const [keyBackground, setKeyBackground] = useState(true)
+  const [keyBackground, setKeyBackground] = useState(false)
   const [keyColor, setKeyColor] = useState('#8a8a8a')
   const [similarity, setSimilarity] = useState(0.12)
   const [blend, setBlend] = useState(0.08)
@@ -58,7 +58,7 @@ export default function App() {
     if (!file || busy) return
     setBusy(true)
     setError('')
-    setStatus('正在加载 ffmpeg（首次约几十秒）…')
+    setStatus('加载 ffmpeg…')
     setProgress(0)
     revokeOutputs(outputs)
     setOutputs([])
@@ -72,7 +72,7 @@ export default function App() {
         blend,
         onProgress: (r) => {
           setProgress(r)
-          setStatus(`转码中（${plan.title} → ${plan.outputLabel}）… ${Math.round(r * 100)}%`)
+          setStatus(`转码中 ${Math.round(r * 100)}%`)
         },
       })
       const next = result.files.map((f) => ({
@@ -82,9 +82,7 @@ export default function App() {
       setOutputs(next)
       setProgress(1)
       setStatus(
-        `完成 · ${result.plan.title} · ${result.plan.outputLabel} · ${next
-          .map((f) => formatBytes(f.blob.size))
-          .join(' / ')}`,
+        `完成 · ${next.map((f) => formatBytes(f.blob.size)).join(' / ')}`,
       )
       if (next[0]) {
         if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -110,20 +108,11 @@ export default function App() {
         <h1 className="brand">
           Transcode <span>Alpha</span>
         </h1>
-        <p className="tagline">
-          选好目标平台，自动转成能用的透明方案。全部在浏览器本地完成，文件不上传。
-        </p>
-        <div className="badge-row">
-          <span className="badge">选平台即转</span>
-          <span className="badge">本地 ffmpeg.wasm</span>
-          <span className="badge">灰底可抠色</span>
-        </div>
+        <p className="tagline">选平台，本地转透明格式。</p>
       </header>
 
       <div className="layout">
         <section className="panel">
-          <h2>输入与导出</h2>
-
           <div
             className={`drop${drag ? ' drag' : ''}`}
             onDragOver={(e) => {
@@ -142,8 +131,8 @@ export default function App() {
               }
             }}
           >
-            <strong>拖入视频，或点击选择</strong>
-            <p>mp4 / mov / webm。真 Alpha 母带或灰底预览片都可以。</p>
+            <strong>{file ? file.name : '拖入或选择视频'}</strong>
+            <p>{file ? formatBytes(file.size) : 'mp4 / mov / webm · 默认按透明母带处理'}</p>
             <input
               id="file-input"
               type="file"
@@ -152,12 +141,6 @@ export default function App() {
               onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
             />
           </div>
-
-          {file && (
-            <p className="file-meta">
-              {file.name} · {formatBytes(file.size)}
-            </p>
-          )}
 
           <div className="field">
             <label>目标平台</label>
@@ -176,7 +159,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <p className="hint">{plan.desc}</p>
           </div>
 
           <label className="check-row">
@@ -185,16 +167,13 @@ export default function App() {
               checked={keyBackground}
               onChange={(e) => setKeyBackground(e.target.checked)}
             />
-            <span>
-              源片是实心底（灰底 / 绿幕），先抠色再导出
-              <small>外包预览片常见；真透明母带请关掉</small>
-            </span>
+            <span>灰底 / 绿幕需先抠色</span>
           </label>
 
           {keyBackground && (
-            <>
+            <div className="key-opts">
               <div className="field">
-                <label htmlFor="key">抠色色值</label>
+                <label htmlFor="key">色值</label>
                 <input
                   id="key"
                   type="text"
@@ -217,7 +196,7 @@ export default function App() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="blend">边缘柔化</label>
+                  <label htmlFor="blend">柔化</label>
                   <input
                     id="blend"
                     type="number"
@@ -229,13 +208,12 @@ export default function App() {
                   />
                 </div>
               </div>
-              <p className="hint">盹盹灰底预览默认 #8a8a8a。边缘仍脏就略加大相似度。</p>
-            </>
+            </div>
           )}
 
           <div className="actions">
             <button className="btn btn-primary" disabled={!file || busy} onClick={run}>
-              {busy ? '转码中…' : `转为 ${plan.title} 格式`}
+              {busy ? '转码中…' : `转为 ${plan.title}`}
             </button>
             {file && (
               <button
@@ -248,12 +226,16 @@ export default function App() {
             )}
           </div>
 
-          <div className="progress" aria-hidden={!busy && progress === 0}>
-            <i style={{ width: `${Math.round(progress * 100)}%` }} />
-          </div>
-          <p className={`status${error ? ' err' : outputs.length ? ' ok' : ''}`}>
-            {error || status}
-          </p>
+          {(busy || progress > 0 || error || status) && (
+            <>
+              <div className="progress" aria-hidden={!busy && progress === 0}>
+                <i style={{ width: `${Math.round(progress * 100)}%` }} />
+              </div>
+              <p className={`status${error ? ' err' : outputs.length ? ' ok' : ''}`}>
+                {error || status}
+              </p>
+            </>
+          )}
 
           {outputs.length > 0 && (
             <div className="downloads">
@@ -261,8 +243,7 @@ export default function App() {
                 <div className="download-item" key={o.name}>
                   <span>
                     {o.name}
-                    <br />
-                    <small style={{ color: 'var(--muted)' }}>{formatBytes(o.blob.size)}</small>
+                    <small>{formatBytes(o.blob.size)}</small>
                   </span>
                   <a className="btn btn-ghost" href={o.url} download={o.name}>
                     下载
@@ -273,8 +254,7 @@ export default function App() {
           )}
         </section>
 
-        <section className="panel">
-          <h2>预览</h2>
+        <section className="panel preview-panel">
           <div
             className={`preview-shell${bg === 'checker' ? '' : ' solid'}`}
             style={shellStyle}
@@ -282,27 +262,16 @@ export default function App() {
             {previewUrl ? (
               <video key={previewUrl} src={previewUrl} controls loop muted playsInline autoPlay />
             ) : (
-              <div
-                style={{
-                  height: '100%',
-                  display: 'grid',
-                  placeItems: 'center',
-                  color: 'var(--muted)',
-                  padding: '1rem',
-                  textAlign: 'center',
-                }}
-              >
-                选择视频后在此预览。棋盘格可检查透明是否干净。
-              </div>
+              <div className="preview-empty">棋盘格 = 透明</div>
             )}
           </div>
           <div className="preview-bar">
             {(
               [
-                ['checker', '棋盘格'],
-                ['#5b4a8a', '紫底'],
-                ['#0d0d0f', '墨黑'],
-                ['#e8e4dc', '浅底'],
+                ['checker', '透明'],
+                ['#5b4a8a', '紫'],
+                ['#0d0d0f', '黑'],
+                ['#e8e4dc', '浅'],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -315,17 +284,8 @@ export default function App() {
               </button>
             ))}
           </div>
-          <p className="hint">
-            选 iOS / 鸿蒙 / 三端通用会得到两路 MP4：把 <code>mask</code> 当透明度叠在{' '}
-            <code>color</code> 上即可。选安卓 / 网页则是单文件透明 WebM。
-          </p>
         </section>
       </div>
-
-      <p className="footer-note">
-        Transcode Alpha · 开源本地工具。选平台即可用；浏览器无法调用 Mac 的 HEVC+Alpha
-        编码器，故 iOS 走双片方案，不必再开终端。
-      </p>
     </div>
   )
 }

@@ -114,6 +114,29 @@ function keyFilter(keyColor: string, similarity: number, blend: number): string 
   return `colorkey=0x${color}:${similarity}:${blend},format=yuva420p`
 }
 
+/**
+ * VP9 Alpha 的透明通道在独立码流里；默认解码器只出 yuv420p，
+ * alphaextract 会失败并写出空文件。WebM 必须走 libvpx-vp9。
+ */
+function inputArgs(inName: string): string[] {
+  return extOf(inName) === 'webm' ? ['-c:v', 'libvpx-vp9', '-i', inName] : ['-i', inName]
+}
+
+/** 彩色片：透明区域压成黑，避免 mask 差一点时闪出底色 */
+const VF_COLOR = 'format=yuva420p,premultiply=inplace=1,format=yuv420p'
+/** 遮罩片：抽出灰度 alpha */
+const VF_MASK = 'format=yuva420p,alphaextract,format=yuv420p'
+
+const X264_COLOR = ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'veryfast', '-bf', '0'] as const
+const X264_MASK = ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'veryfast', '-bf', '0'] as const
+
+async function execOrThrow(ffmpeg: FFmpeg, args: string[]): Promise<void> {
+  const code = await ffmpeg.exec(args)
+  if (code !== 0) {
+    throw new Error(`ffmpeg 失败（退出码 ${code}）`)
+  }
+}
+
 /** 按目标平台自动选格式；可选先抠灰底/绿幕。 */
 export async function convertVideo(
   file: File,
@@ -139,8 +162,8 @@ export async function convertVideo(
   if (plan.kind === 'webm-alpha') {
     const out = `${stem}-${options.platform}-alpha.webm`
     const vf = vfKey ?? 'format=yuva420p'
-    await ffmpeg.exec([
-      '-i', inName,
+    await execOrThrow(ffmpeg, [
+      ...inputArgs(inName),
       '-an',
       '-vf', vf,
       '-c:v', 'libvpx-vp9',
@@ -162,8 +185,8 @@ export async function convertVideo(
     if (vfKey) {
       // 先落到带 alpha 的中间 WebM，再拆双片（wasm 里复杂 filtergraph 更稳）
       const mid = 'keyed-mid.webm'
-      await ffmpeg.exec([
-        '-i', inName,
+      await execOrThrow(ffmpeg, [
+        ...inputArgs(inName),
         '-an',
         '-vf', vfKey,
         '-c:v', 'libvpx-vp9',
@@ -173,61 +196,48 @@ export async function convertVideo(
         '-crf', '34',
         mid,
       ])
-      await ffmpeg.exec([
-        '-i', mid,
+      await execOrThrow(ffmpeg, [
+        ...inputArgs(mid),
         '-an',
-        '-vf', 'format=yuv420p',
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-crf', '20',
-        '-preset', 'veryfast',
+        '-vf', VF_COLOR,
+        ...X264_COLOR,
         colorOut,
       ])
-      await ffmpeg.exec([
-        '-i', mid,
+      await execOrThrow(ffmpeg, [
+        ...inputArgs(mid),
         '-an',
-        '-vf', 'alphaextract,format=yuv420p',
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-crf', '18',
-        '-preset', 'veryfast',
+        '-vf', VF_MASK,
+        ...X264_MASK,
         maskOut,
       ])
       await ffmpeg.deleteFile(mid).catch(() => undefined)
     } else {
-      await ffmpeg.exec([
-        '-i', inName,
+      await execOrThrow(ffmpeg, [
+        ...inputArgs(inName),
         '-an',
-        '-vf', 'format=yuv420p',
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-crf', '20',
-        '-preset', 'veryfast',
+        '-vf', VF_COLOR,
+        ...X264_COLOR,
         colorOut,
       ])
-      await ffmpeg.exec([
-        '-i', inName,
+      await execOrThrow(ffmpeg, [
+        ...inputArgs(inName),
         '-an',
-        '-vf', 'alphaextract,format=yuv420p',
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-crf', '18',
-        '-preset', 'veryfast',
+        '-vf', VF_MASK,
+        ...X264_MASK,
         maskOut,
       ])
     }
 
+    const colorBlob = await readBlob(ffmpeg, colorOut, 'video/mp4')
+    const maskBlob = await readBlob(ffmpeg, maskOut, 'video/mp4')
+    if (maskBlob.size < 64) {
+      throw new Error(
+        '遮罩片导出失败（文件为空）。若母带是 VP9 Alpha WebM，请重试；仍失败则换 ProRes 4444 / 双片交付。',
+      )
+    }
     files.push(
-      {
-        name: colorOut,
-        blob: await readBlob(ffmpeg, colorOut, 'video/mp4'),
-        mime: 'video/mp4',
-      },
-      {
-        name: maskOut,
-        blob: await readBlob(ffmpeg, maskOut, 'video/mp4'),
-        mime: 'video/mp4',
-      },
+      { name: colorOut, blob: colorBlob, mime: 'video/mp4' },
+      { name: maskOut, blob: maskBlob, mime: 'video/mp4' },
     )
   }
 
