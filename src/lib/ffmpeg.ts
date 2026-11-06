@@ -122,10 +122,14 @@ function inputArgs(inName: string): string[] {
   return extOf(inName) === 'webm' ? ['-c:v', 'libvpx-vp9', '-i', inName] : ['-i', inName]
 }
 
+/**
+ * 先升到 yuva444p16le 再处理：ProRes / 部分 Alpha 母带若直接
+ * format=yuva420p 再 alphaextract，会抽成空边或近空片（体积异常小）。
+ */
 /** 彩色片：透明区域压成黑，避免 mask 差一点时闪出底色 */
-const VF_COLOR = 'format=yuva420p,premultiply=inplace=1,format=yuv420p'
+const VF_COLOR = 'format=yuva444p16le,premultiply=inplace=1,format=yuv420p'
 /** 遮罩片：抽出灰度 alpha */
-const VF_MASK = 'format=yuva420p,alphaextract,format=yuv420p'
+const VF_MASK = 'format=yuva444p16le,alphaextract,format=yuv420p'
 
 const X264_COLOR = ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'veryfast', '-bf', '0'] as const
 const X264_MASK = ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'veryfast', '-bf', '0'] as const
@@ -150,6 +154,10 @@ export async function convertVideo(
 
   const inName = `input.${extOf(file.name)}`
   const stem = stemOf(file.name)
+  // 新一次转码才清上次残留；本轮结束后故意保留源片
+  for (const stale of ['input.mp4', 'input.mov', 'input.webm', 'input.mkv', 'keyed-mid.webm']) {
+    if (stale !== inName) await ffmpeg.deleteFile(stale).catch(() => undefined)
+  }
   await ffmpeg.writeFile(inName, await fetchFile(file))
 
   const sim = options.similarity ?? 0.12
@@ -210,6 +218,7 @@ export async function convertVideo(
         ...X264_MASK,
         maskOut,
       ])
+      // 中间片可清；源片保留，方便改参重转 / 对照遮罩
       await ffmpeg.deleteFile(mid).catch(() => undefined)
     } else {
       await execOrThrow(ffmpeg, [
@@ -239,15 +248,21 @@ export async function convertVideo(
       { name: colorOut, blob: colorBlob, mime: 'video/mp4' },
       { name: maskOut, blob: maskBlob, mime: 'video/mp4' },
     )
+    if (isMaskSuspiciouslySmall(colorBlob.size, maskBlob.size)) {
+      options.onLog?.(
+        '警告：遮罩片异常偏小。请确认母带带 Alpha；灰底预览片请勾选「灰底 / 绿幕需先抠色」。',
+      )
+    }
   }
 
-  try {
-    await ffmpeg.deleteFile(inName)
-  } catch {
-    /* ignore */
-  }
-
+  // 故意不删 MEMFS 里的源片，便于连续重转与对照
   return { files, plan }
+}
+
+/** 正常双片里 mask 通常与 color 同量级；过小多半是 alpha 没抽出来 */
+function isMaskSuspiciouslySmall(colorBytes: number, maskBytes: number): boolean {
+  if (colorBytes < 50_000) return false
+  return maskBytes < Math.max(32_768, colorBytes * 0.02)
 }
 
 async function readBlob(ffmpeg: FFmpeg, name: string, mime: string): Promise<Blob> {

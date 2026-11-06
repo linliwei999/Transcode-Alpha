@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { convertVideo, PLATFORMS, planFor, type Platform } from './lib/ffmpeg'
 
 type BgMode = 'checker' | '#5b4a8a' | '#0d0d0f' | '#e8e4dc'
@@ -9,6 +9,153 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(2)} MB`
+}
+
+function extOfName(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i >= 0 ? name.slice(i) : ''
+}
+
+/** 保留原后缀；用户只改主名 */
+function withOriginalExt(input: string, originalName: string): string {
+  const ext = extOfName(originalName) || '.mp4'
+  const trimmed = input.trim() || originalName
+  const stem = trimmed.replace(/\.[^./\\]+$/i, '') || 'output'
+  return `${stem}${ext}`
+}
+
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M12 3a1 1 0 0 1 1 1v9.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42L11 13.59V4a1 1 0 0 1 1-1Zm-7 14a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"
+      />
+    </svg>
+  )
+}
+
+function CircularProgress({ value }: { value: number }) {
+  const r = 34
+  const c = 2 * Math.PI * r
+  const pct = Math.min(1, Math.max(0, value))
+  return (
+    <div className="circ-progress" role="progressbar" aria-valuenow={Math.round(pct * 100)}>
+      <svg viewBox="0 0 80 80" width="80" height="80">
+        <circle className="circ-track" cx="40" cy="40" r={r} />
+        <circle
+          className="circ-fill"
+          cx="40"
+          cy="40"
+          r={r}
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - pct)}
+        />
+      </svg>
+      <span>{Math.round(pct * 100)}%</span>
+    </div>
+  )
+}
+
+function PreviewPane({
+  title,
+  emptyLabel,
+  file,
+  fallbackUrl,
+  fallbackHint,
+  shellClass = '',
+  shellStyle,
+  busy = false,
+  progress = 0,
+}: {
+  title: string
+  emptyLabel: string
+  file: OutFile | null
+  fallbackUrl?: string | null
+  fallbackHint?: string
+  shellClass?: string
+  shellStyle?: CSSProperties
+  busy?: boolean
+  progress?: number
+}) {
+  const [downloadName, setDownloadName] = useState('')
+  const src = !busy ? (file?.url ?? fallbackUrl ?? null) : null
+  const ready = Boolean(file && !busy)
+
+  useEffect(() => {
+    setDownloadName(file?.name ?? '')
+  }, [file?.name, file?.url])
+
+  const finalName = file ? withOriginalExt(downloadName, file.name) : ''
+
+  return (
+    <div className={`preview-pane${busy ? ' is-generating' : ''}`}>
+      <div className={`preview-shell${shellClass}${busy ? ' generating' : ''}`} style={shellStyle}>
+        {busy && (
+          <>
+            <div className="gen-glow" aria-hidden />
+            <div className="gen-shimmer" aria-hidden />
+            <div className="gen-scan" aria-hidden />
+            <div className="gen-overlay">
+              <CircularProgress value={progress} />
+              <p className="gen-label">转码中</p>
+            </div>
+          </>
+        )}
+        {!busy && src ? (
+          <video key={src} src={src} controls loop muted playsInline autoPlay />
+        ) : !busy ? (
+          <div className="preview-empty">{emptyLabel}</div>
+        ) : null}
+      </div>
+      <div className={`pane-meta${ready ? '' : ' pane-meta-slot'}`}>
+        <div className="pane-meta-text">
+          {ready && file ? (
+            <>
+              <label className="sr-only" htmlFor={`dl-${file.name}`}>
+                下载文件名
+              </label>
+              <input
+                id={`dl-${file.name}`}
+                className="pane-name-input"
+                value={downloadName}
+                onChange={(e) => setDownloadName(e.target.value)}
+                spellCheck={false}
+                title="自定义下载文件名（后缀自动保留）"
+              />
+              <small>{formatBytes(file.blob.size)}</small>
+            </>
+          ) : (
+            <>
+              <strong>{title}</strong>
+              <small>
+                {busy
+                  ? `转码中 ${Math.round(progress * 100)}%`
+                  : fallbackUrl
+                    ? fallbackHint ?? '待转码'
+                    : '转完后可下载'}
+              </small>
+            </>
+          )}
+        </div>
+        {ready && file ? (
+          <a
+            className="icon-btn"
+            href={file.url}
+            download={finalName}
+            title={`下载 ${finalName}`}
+            aria-label={`下载 ${finalName}`}
+          >
+            <DownloadIcon />
+          </a>
+        ) : (
+          <span className="icon-btn download-slot-btn" aria-hidden>
+            <DownloadIcon />
+          </span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function App() {
@@ -28,6 +175,17 @@ export default function App() {
   const [drag, setDrag] = useState(false)
 
   const plan = useMemo(() => planFor(platform), [platform])
+
+  const colorOut = useMemo(
+    () => outputs.find((o) => /-color\./i.test(o.name)) ?? null,
+    [outputs],
+  )
+  const maskOut = useMemo(
+    () => outputs.find((o) => /-mask\./i.test(o.name)) ?? null,
+    [outputs],
+  )
+  /** 双片平台：右侧固定左右分栏预览（转完才有片源） */
+  const showDualSlots = plan.kind === 'dual-mp4'
 
   const revokeOutputs = useCallback((list: OutFile[]) => {
     list.forEach((f) => URL.revokeObjectURL(f.url))
@@ -84,10 +242,7 @@ export default function App() {
       setStatus(
         `完成 · ${next.map((f) => formatBytes(f.blob.size)).join(' / ')}`,
       )
-      if (next[0]) {
-        if (previewUrl) URL.revokeObjectURL(previewUrl)
-        setPreviewUrl(next[0].url)
-      }
+      // 保留源片；结果信息与下载挂在对应预览下方
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setError(msg)
@@ -97,10 +252,10 @@ export default function App() {
     }
   }
 
-  const shellStyle =
+  const shellStyle: CSSProperties | undefined =
     bg === 'checker'
       ? undefined
-      : ({ backgroundColor: bg, backgroundImage: 'none' } as React.CSSProperties)
+      : { backgroundColor: bg, backgroundImage: 'none' }
 
   return (
     <div className="app">
@@ -226,45 +381,47 @@ export default function App() {
             )}
           </div>
 
-          {(busy || progress > 0 || error || status) && (
-            <>
-              <div className="progress" aria-hidden={!busy && progress === 0}>
-                <i style={{ width: `${Math.round(progress * 100)}%` }} />
-              </div>
-              <p className={`status${error ? ' err' : outputs.length ? ' ok' : ''}`}>
-                {error || status}
-              </p>
-            </>
-          )}
-
-          {outputs.length > 0 && (
-            <div className="downloads">
-              {outputs.map((o) => (
-                <div className="download-item" key={o.name}>
-                  <span>
-                    {o.name}
-                    <small>{formatBytes(o.blob.size)}</small>
-                  </span>
-                  <a className="btn btn-ghost" href={o.url} download={o.name}>
-                    下载
-                  </a>
-                </div>
-              ))}
-            </div>
-          )}
+          <p className={`status status-inline${error ? ' err' : outputs.length ? ' ok' : ''}`}>
+            {error || (!busy && status) || '\u00a0'}
+          </p>
         </section>
 
         <section className="panel preview-panel">
-          <div
-            className={`preview-shell${bg === 'checker' ? '' : ' solid'}`}
-            style={shellStyle}
-          >
-            {previewUrl ? (
-              <video key={previewUrl} src={previewUrl} controls loop muted playsInline autoPlay />
-            ) : (
-              <div className="preview-empty">棋盘格 = 透明</div>
-            )}
-          </div>
+          {showDualSlots ? (
+            <div className="preview-dual">
+              <PreviewPane
+                title="画面 · color"
+                emptyLabel="画面"
+                file={colorOut}
+                fallbackUrl={previewUrl}
+                fallbackHint="源片（转完后换 color）"
+                shellClass={bg === 'checker' ? '' : ' solid'}
+                shellStyle={shellStyle}
+                busy={busy}
+                progress={progress}
+              />
+              <PreviewPane
+                title="遮罩 · mask"
+                emptyLabel="遮罩 · 待转码"
+                file={maskOut}
+                shellClass=" solid preview-mask"
+                busy={busy}
+                progress={progress}
+              />
+            </div>
+          ) : (
+            <PreviewPane
+              title="透明片 · alpha"
+              emptyLabel="棋盘格 = 透明"
+              file={outputs[0] ?? null}
+              fallbackUrl={previewUrl}
+              fallbackHint="源片"
+              shellClass={bg === 'checker' ? '' : ' solid'}
+              shellStyle={shellStyle}
+              busy={busy}
+              progress={progress}
+            />
+          )}
           <div className="preview-bar">
             {(
               [
